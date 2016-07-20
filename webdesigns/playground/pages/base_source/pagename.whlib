@@ -1,0 +1,19 @@
+<?wh
+LOADLIB "wh::witty.whlib";
+LOADLIB "module::publisher/webdesign.whlib";
+
+PUBLIC OBJECTTYPE Page EXTEND DynamicPageBase
+<
+  RECORD wittydata;
+
+  UPDATE PUBLIC MACRO PrepareForRendering(OBJECT webdesign)
+  {
+    INSERT "page-pagename" INTO webdesign->htmlclasses AT END;
+  }
+
+  UPDATE PUBLIC MACRO RunBody(OBJECT webdesign)
+  {
+    OBJECT wittylib := LoadWittyLibrary(this->pagefolder || "pagename.witty", "HTML");
+    wittylib->Run(this->wittydata);
+  }
+>;

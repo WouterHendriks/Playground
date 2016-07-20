@@ -1,0 +1,18 @@
+{
+  "name": "dummy",
+  "version": "0.0.0",
+  "description": "",
+  "main": "",
+  "directories": {
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "unlicensed",
+  "private": true,
+  "dependencies": {
+    "jquery": "^3.1.0",
+    "velocity-animate": "^1.2.3"
+  }
+}

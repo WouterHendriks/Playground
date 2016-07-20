@@ -1,0 +1,10 @@
+<?wh
+LOADLIB "module::publisher/webdesign.whlib";
+
+PUBLIC OBJECTTYPE playgroundDesign EXTEND WebDesignBase
+<
+  UPDATE PUBLIC RECORD FUNCTION GetPageConfig()
+  {
+    RETURN DEFAULT RECORD;
+  }
+>;

@@ -1,0 +1,128 @@
+<?wh
+LOADLIB "wh::xml/dom.whlib";
+LOADLIB "wh::os.whlib";
+LOADLIB "wh::files.whlib";
+LOADLIB "module::publisher/control.whlib";
+LOADLIB "module::publisher/internal/siteprofiles/compiler.whlib";
+LOADLIB "module::publisher/siteapi.whlib";
+LOADLIB "module::system/database.whlib";
+LOADLIB "module::system/whfs.whlib";
+LOADLIB "module::system/configure.whlib";
+
+STRING moduleroot := GetModuleInstallationRoot("playground");
+STRING siteprl_path := moduleroot || "webdesigns/playground/playground.siteprl";
+STRING pages_folder_path := moduleroot || "webdesigns/playground/pages/";
+
+OBJECT FUNCTION GetAndValidateSiteProfile()
+{
+  INTEGER infile := OpenDiskFile(siteprl_path, FALSE);
+  IF(infile<=0)
+    RETURN DEFAULT OBJECT;
+
+  STRING data := ReadFromFile(infile, 1024*1024);
+  CloseDiskFile(infile);
+
+  OBJECT doc := MakeXMLDocument(StringToBlob(data));
+
+  IF(Length(doc->GetParseErrors()) > 0)
+    Abort("webdesigns/playground/playground.siteprl doesnn't validate, fix this first pl0x");
+
+  RETURN doc;
+}
+
+OBJECT trans := OpenPrimary();
+trans->BeginWork();
+
+OBJECT playgroundsite := OpenSiteByName("Playground");
+IF (NOT ObjectExists(playgroundsite))
+  Abort("Site 'Playground' not found, create this site first");
+
+RECORD args := ParseArguments(GetConsoleArguments(),
+                              [[ name := "title", type := "param" ]
+                              ]);
+
+STRING name := GetSafeFileName(args.title);
+
+// create new folder + pre-built file
+//FIXME: Check existing folder (it crashes nicely when trying to make a duplicate, e.g. leave the disk-stuff beneath this)
+OBJECT pubfolder := playgroundsite->rootobject->CreateFolder([ name := name ]);
+
+OBJECT prebuilttype := OpenWHFSType("http://www.webhare.net/xmlns/publisher/prebuiltpage");
+OBJECT pubfile := pubfolder->CreateFile( [ type := prebuilttype->id
+                                         , name := name
+                                         , title := args.title
+                                         , publish := TRUE
+                                         ]);
+
+prebuilttype->SetInstanceData(pubfile->id, [ prebuilttag := name ]);
+
+
+
+OBJECT siteprl := GetAndValidateSiteProfile();
+
+// get global apply
+// FIXME: don't get the last, but check for an existing `<to type="all" />` in the <apply> node
+STRING xmlns := "http://www.webhare.net/xmlns/publisher/siteprofile";
+OBJECT applies := siteprl->documentelement->GetChildElementsByTagNameNS(xmlns, "apply");
+OBJECT last_apply := applies->Item(Length(applies->GetCurrentElements())-1);
+
+// create node: <prebuiltpage tag="<tag>" type="<dynamic|static>" library="<lib>" webpageobjectname="<objectname>" title="<title>" />
+
+//FIXME: check for existing prebuiltpage tag!
+
+OBJECT filetypenode := siteprl->CreateElementNS(xmlns, "prebuiltpage");
+filetypenode->SetAttribute("tag", name);
+filetypenode->SetAttribute("type", "dynamic");
+filetypenode->SetAttribute("library", "pages/" || name || "/" || name || ".whlib");
+filetypenode->SetAttribute("webpageobjectname", "page");
+filetypenode->SetAttribute("title", args.title);
+
+last_apply->AppendChild(filetypenode);
+last_apply->AppendChild(siteprl->CreateTextNode('\n'));
+
+BLOB xmlresult := siteprl->GetDocumentBlob(TRUE);
+
+IF(NOT CreateDiskFileFromBlob(siteprl_path, FALSE, TRUE, xmlresult))
+  THROW NEW Exception("I/O error updating site profile definition");
+
+// create a folder in the 'pages' folder
+STRING newpagesfolderpath := pages_folder_path || name || "/";
+CreateDiskDirectory(newpagesfolderpath, TRUE);
+
+// copy source files to the new directory, substitung stuff where necessary
+// whlib
+STRING source_files_path := pages_folder_path || "base_source/";
+STRING whlib_contents := BlobToString(GetDiskResource(source_files_path || "pagename.whlib"), -1);
+whlib_contents := Substitute(whlib_contents, "pagename", name);
+CreateDiskFileFromBlob(newpagesfolderpath || name || ".whlib", TRUE, TRUE, StringToBlob(whlib_contents));
+
+// javascript
+STRING javascript_contents := BlobToString(GetDiskResource(source_files_path || "pagename.es"), -1);
+javascript_contents := Substitute(javascript_contents, "pagename", name);
+CreateDiskFileFromBlob(newpagesfolderpath || name || ".es", TRUE, TRUE, StringToBlob(javascript_contents));
+
+// CSS + Witty
+CreateDiskFileFromBlob(newpagesfolderpath || name || ".scss", TRUE, TRUE, DEFAULT BLOB);
+CreateDiskFileFromBlob(newpagesfolderpath || name || ".witty", TRUE, TRUE, DEFAULT BLOB);
+
+// add a new require for the JavaScript file in the main pages.es file
+STRING pages_js_path := moduleroot || "webdesigns/playground/js/pages.es";
+STRING pages_js := BlobToString(GetDiskResource(pages_js_path), -1);
+pages_js := pages_js || "require('../pages/" || name || "/" || name || ".es');\n";
+CreateDiskFileFromBlob(pages_js_path, FALSE, TRUE, StringToBlob(pages_js));
+
+RECORD ARRAY errors := trans->CommitWork();
+IF (Length(errors) > 0)
+{
+  //FIXME: rollback new folder? or just do transaction work first?
+  Abort("Errors in script: " || AnyToString(errors,'tree'));
+}
+
+RecompileSiteProfiles(0);
+
+// republish new file
+trans->BeginWork();
+ScheduleFileRepublish(pubfile->id);
+trans->CommitWork();
+
+Print('\n\nall done\n\n' || name || '\n\n');
