@@ -10,9 +10,5 @@
   },
   "author": "",
   "license": "unlicensed",
-  "private": true,
-  "dependencies": {
-    "jquery": "^3.1.0",
-    "velocity-animate": "^1.2.3"
-  }
+  "private": true
 }
